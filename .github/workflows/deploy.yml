@@ -1,0 +1,26 @@
+name: Deploy to Docker Hub
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Login no Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Construir a imagem Docker
+        run: docker build -t danieletzel/ai_dev_assistant:latest .
+
+      - name: Enviar a imagem para o Docker Hub
+        run: docker push danieletzel/ai_dev_assistant:latest
