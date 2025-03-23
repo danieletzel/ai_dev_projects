@@ -1,34 +1,8 @@
-Aqui está um exemplo básico de um servidor web Flask em Python que exibe a mensagem "Bem-vindo ao meu site!" na página inicial:
+from fastapi import FastAPI
+from ai_dev_assistant import app as api_app
 
-```python
-# Importar o módulo Flask
-from flask import Flask
+app = api_app  # Referência ao app dentro do ai_dev_assistant.py
 
-# Criar uma nova instância do Flask
-app = Flask(__name__)
-
-# Criar uma rota para a página inicial
-@app.route('/')
-def home():
-    # Retornar uma mensagem de boas vindas
-    return 'Bem-vindo ao meu site!'
-
-# Executar o servidor
-if __name__ == '__main__':
-    app.run(debug=True)
-```
-
-Para executar este servidor, você precisará ter Flask instalado na sua máquina. Você pode instalar o Flask usando pip:
-
-```
-pip install flask
-```
-
-Uma vez que o Flask está instalado, você pode executar o servidor com o seguinte comando:
-
-```
-python filename.py
-```
-
-Substitua 'filename.py' com o nome do seu arquivo Python. Este servidor estará em execução no endereço 'http://localhost:5000'.
-Neste código, `debug=True` está configurado para fornecer mensagens de erro mais detalhadas caso ocorra algum erro. Em um ambiente de produção, isso precisa ser desativado.
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -1,4 +1,7 @@
 fastapi
 uvicorn
-openai
+openai>=0.27.0,<1.0.0  # compatível com OpenAI.ChatCompletion
 pytest
+boto3
+flask
+requests

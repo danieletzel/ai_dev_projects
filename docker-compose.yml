@@ -1,0 +1,32 @@
+version: "3.8"
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.fastapi
+    ports:
+      - "8000:8000"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    volumes:
+      - shared-data:/app/workspaces
+
+  code_runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.main
+    ports:
+      - "5050:5050"
+    volumes:
+      - shared-data:/app/workspaces
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "3000:80"
+
+volumes:
+  shared-data:

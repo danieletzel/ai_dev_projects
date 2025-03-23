@@ -1,0 +1,10 @@
+FROM nginx:alpine
+
+# Apaga conteúdo anterior do Nginx
+RUN rm -rf /usr/share/nginx/html/*
+
+# Copia os arquivos do frontend para a pasta padrão do Nginx
+COPY frontend/index.html /usr/share/nginx/html/index.html
+
+# Permissões padrão de leitura
+RUN chmod 644 /usr/share/nginx/html/index.html

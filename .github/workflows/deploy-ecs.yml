@@ -1,0 +1,36 @@
+name: Deploy para ECS
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Login na AWS ECR
+        uses: aws-actions/amazon-ecr-login@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          region: us-east-2
+
+      - name: Build e Push - Backend
+        run: |
+          docker build -t ${{ secrets.ECR_BACKEND_URI }} -f Dockerfile.fastapi .
+          docker push ${{ secrets.ECR_BACKEND_URI }}
+
+      - name: Build e Push - Frontend
+        run: |
+          docker build -t ${{ secrets.ECR_FRONTEND_URI }} -f Dockerfile.frontend .
+          docker push ${{ secrets.ECR_FRONTEND_URI }}
+
+      - name: Build e Push - Code Runner
+        run: |
+          docker build -t ${{ secrets.ECR_CODE_RUNNER_URI }} -f Dockerfile.main .
+          docker push ${{ secrets.ECR_CODE_RUNNER_URI }}

@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AI Dev Assistant</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      margin-top: 50px;
+    }
+    input, button {
+      margin: 10px;
+      padding: 10px;
+      font-size: 16px;
+    }
+    pre {
+      background: #f4f4f4;
+      padding: 10px;
+      border-radius: 5px;
+      text-align: left;
+      display: inline-block;
+      max-width: 80%;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+  </style>
+</head>
+<body>
+  <h1>AI Dev Assistant</h1>
+
+  <h3>Testar Conexão</h3>
+  <button onclick="testAPI()">Verificar API</button>
+  <p id="api-status"></p>
+
+  <h3>Gerar Código</h3>
+  <input type="text" id="command" placeholder="Digite um comando..." />
+  <button onclick="generateCode()">Gerar Código</button>
+  <p id="code-result"></p>
+
+  <h3>Código Gerado</h3>
+  <button onclick="getGeneratedCode()">Ver Código</button>
+  <pre id="code-output">Código gerado será exibido aqui...</pre>
+
+  <h3>Executar Código</h3>
+  <button onclick="runCode()">Executar Código</button>
+  <pre id="code-execution-output">Saída do código será exibida aqui...</pre>
+
+  <script>
+    const API_URL = "http://ai-dev-alb-1262730636.us-east-2.elb.amazonaws.com/api";
+
+    function testAPI() {
+      fetch(`${API_URL}/`)
+        .then((response) => response.json())
+        .then((data) => {
+          document.getElementById("api-status").innerText = data.message;
+        })
+        .catch(() => {
+          document.getElementById("api-status").innerText = "Erro ao conectar à API";
+        });
+    }
+
+    function generateCode() {
+      const command = document.getElementById("command").value;
+      fetch(`${API_URL}/generate_code/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          command: command,
+          filename: "main.py",
+          project: "default_project"
+        })
+      })
+      .then((response) => response.json())
+      .then((data) => {
+        document.getElementById("code-result").innerText = data.message;
+      })
+      .catch(() => {
+        document.getElementById("code-result").innerText = "Erro ao gerar código";
+      });
+    }
+
+    function getGeneratedCode() {
+      fetch(`${API_URL}/get_code/?project=default_project&filename=main.py`)
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error(`Erro na requisição: ${response.status}`);
+          }
+          return response.text();
+        })
+        .then((code) => {
+          document.getElementById("code-output").innerText = code;
+        })
+        .catch((error) => {
+          console.error("Erro ao buscar código:", error);
+          document.getElementById("code-output").innerText = "Erro ao buscar código.";
+        });
+    }
+
+    function runCode() {
+      fetch(`${API_URL}/run_code/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filename: "main.py",
+          project: "default_project"
+        })
+      })
+      .then(response => response.json())
+      .then(data => {
+        const output = data.output || "";
+        const errors = data.errors || "";
+        document.getElementById("code-execution-output").innerText =
+          `Saída:\n${output}\n\nErros:\n${errors}`;
+      })
+      .catch(error => {
+        console.error("Erro ao executar código:", error);
+        document.getElementById("code-execution-output").innerText = "Erro ao executar código.";
+      });
+    }
+  </script>
+</body>
+</html>

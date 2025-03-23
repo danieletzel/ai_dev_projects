@@ -1,0 +1,9 @@
+FROM python:3.10-slim
+
+WORKDIR /app
+
+RUN pip install flask
+
+COPY workspaces/default_project/main.py .
+
+CMD ["python", "main.py"]
