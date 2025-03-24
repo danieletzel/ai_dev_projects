@@ -4,6 +4,7 @@ import openai
 import boto3
 import re
 import textwrap
+from datetime import datetime
 
 from fastapi import FastAPI, HTTPException, APIRouter
 from fastapi.responses import PlainTextResponse
@@ -23,6 +24,21 @@ dynamodb_resource = boto3.resource("dynamodb", region_name="us-east-2")
 
 # Define chave da API OpenAI
 openai.api_key = os.getenv("OPENAI_API_KEY")
+
+# Função de upload para o S3 (versionamento de código)
+def upload_code_to_s3(code: str, project: str, filename: str = "main.py"):
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    s3_key = f"{project}/{timestamp}_{filename}"
+    
+    try:
+        boto3.client("s3", region_name="us-east-2").put_object(
+            Bucket="ai-dev-assistant-code-history",
+            Key=s3_key,
+            Body=code.encode("utf-8")
+        )
+        print(f"Código salvo no S3 em: {s3_key}")
+    except Exception as e:
+        print(f"Erro ao salvar código no S3: {e}")
 
 # Estruturas das requisições
 class CodeRequest(BaseModel):
@@ -101,18 +117,15 @@ def auto_fix_code(request: CodeRequest):
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="Arquivo não encontrado.")
 
-    # Tenta até 3 vezes corrigir e executar o código
     for _ in range(3):
         result = subprocess.run(["python3", file_path], capture_output=True, text=True, timeout=10)
 
         if result.returncode == 0:
             return {"output": result.stdout, "message": "Código executado com sucesso sem erros."}
 
-        # Carrega o código atual com erro
         with open(file_path, "r", encoding="utf-8") as f:
             current_code = f.read()
 
-        # Gera prompt de correção
         prompt = textwrap.dedent(f"""
             O código abaixo está com erro. Corrija o erro retornado no traceback:
 
@@ -125,7 +138,6 @@ def auto_fix_code(request: CodeRequest):
             Retorne apenas o código corrigido, sem explicações.
         """).strip()
 
-        # Solicita correção ao modelo
         response = openai.ChatCompletion.create(
             model="gpt-4",
             messages=[
