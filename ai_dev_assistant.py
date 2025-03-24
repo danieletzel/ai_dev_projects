@@ -40,6 +40,29 @@ def upload_code_to_s3(code: str, project: str, filename: str = "main.py"):
     except Exception as e:
         print(f"Erro ao salvar código no S3: {e}")
 
+# Endpoint para listar arquivos versionados no S3
+@router.get("/list_versions/")
+def list_versions(project: str = "default_project"):
+    try:
+        s3_client = boto3.client("s3", region_name="us-east-2")
+        response = s3_client.list_objects_v2(
+            Bucket="ai-dev-assistant-code-history",
+            Prefix=f"{project}/"
+        )
+
+        files = []
+        for obj in response.get("Contents", []):
+            files.append({
+                "filename": obj["Key"],
+                "last_modified": obj["LastModified"].isoformat(),
+                "size": obj["Size"]
+            })
+
+        return {"project": project, "versions": files}
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao listar versões: {str(e)}")
+
 # Estruturas das requisições
 class CodeRequest(BaseModel):
     command: str = ""
