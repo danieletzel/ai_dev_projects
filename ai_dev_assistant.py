@@ -64,6 +64,9 @@ def generate_code(request: CodeRequest):
     with open(file_path, "w", encoding="utf-8") as file:
         file.write(clean_code)
 
+    # Versionamento no S3
+    upload_code_to_s3(clean_code, request.project, request.filename)
+
     return {"message": "Código gerado com sucesso!", "file": file_path}
 
 # Executa o código salvo
