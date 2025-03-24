@@ -40,6 +40,26 @@ def upload_code_to_s3(code: str, project: str, filename: str = "main.py"):
     except Exception as e:
         print(f"Erro ao salvar código no S3: {e}")
 
+# Função de persistência no DynamoDB
+def save_to_dynamodb(project: str, filename: str, command: str, code: str, output: str, errors: str):
+    timestamp = datetime.utcnow().isoformat()
+    try:
+        table = dynamodb_resource.Table("ai-code-history")
+        table.put_item(
+            Item={
+                "project_id": project,
+                "timestamp": timestamp,
+                "filename": filename,
+                "command": command,
+                "code": code,
+                "output": output,
+                "errors": errors
+            }
+        )
+        print(f"Dados salvos no DynamoDB: {timestamp}")
+    except Exception as e:
+        print(f"Erro ao salvar no DynamoDB: {e}")
+
 # Endpoint para listar arquivos versionados no S3
 @router.get("/list_versions/")
 def list_versions(project: str = "default_project"):
@@ -106,7 +126,30 @@ def generate_code(request: CodeRequest):
     # Versionamento no S3
     upload_code_to_s3(clean_code, request.project, request.filename)
 
-    return {"message": "Código gerado com sucesso!", "file": file_path}
+    # Executa o código para capturar saída
+    result = subprocess.run(
+        ["python3", file_path],
+        capture_output=True,
+        text=True,
+        timeout=10
+    )
+
+    # Salva no DynamoDB
+    save_to_dynamodb(
+        project=request.project,
+        filename=request.filename,
+        command=request.command,
+        code=clean_code,
+        output=result.stdout,
+        errors=result.stderr
+    )
+
+    return {
+        "message": "Código gerado com sucesso!",
+        "file": file_path,
+        "output": result.stdout,
+        "errors": result.stderr
+    }
 
 # Executa o código salvo
 @router.post("/run_code/")
