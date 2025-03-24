@@ -1,3 +1,4 @@
+# ... [IMPORTS E INICIALIZAÇÕES IGUAIS]
 import os
 import subprocess
 import openai
@@ -14,22 +15,18 @@ from pydantic import BaseModel
 app = FastAPI()
 router = APIRouter(prefix="/api")
 
-# Caminho onde os projetos são armazenados
 PROJECTS_DIR = "/app/workspaces"
 os.makedirs(PROJECTS_DIR, exist_ok=True)
 
-# Inicializa clientes da AWS
 dynamodb_client = boto3.client("dynamodb", region_name="us-east-2")
 dynamodb_resource = boto3.resource("dynamodb", region_name="us-east-2")
 
-# Define chave da API OpenAI
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# Função de upload para o S3 (versionamento de código)
+# --- S3 ---
 def upload_code_to_s3(code: str, project: str, filename: str = "main.py"):
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     s3_key = f"{project}/{timestamp}_{filename}"
-    
     try:
         boto3.client("s3", region_name="us-east-2").put_object(
             Bucket="ai-dev-assistant-code-history",
@@ -40,69 +37,34 @@ def upload_code_to_s3(code: str, project: str, filename: str = "main.py"):
     except Exception as e:
         print(f"Erro ao salvar código no S3: {e}")
 
-# Função de persistência no DynamoDB
+# --- DynamoDB ---
 def save_to_dynamodb(project: str, filename: str, command: str, code: str, output: str, errors: str):
     timestamp = datetime.utcnow().isoformat()
     try:
         table = dynamodb_resource.Table("ai-code-history")
-        table.put_item(
-            Item={
-                "project_id": project,
-                "timestamp": timestamp,
-                "filename": filename,
-                "command": command,
-                "code": code,
-                "output": output,
-                "errors": errors
-            }
-        )
+        table.put_item(Item={
+            "project_id": project,
+            "timestamp": timestamp,
+            "filename": filename,
+            "command": command,
+            "code": code,
+            "output": output,
+            "errors": errors
+        })
         print(f"Dados salvos no DynamoDB: {timestamp}")
     except Exception as e:
         print(f"Erro ao salvar no DynamoDB: {e}")
 
-# Endpoint para listar arquivos versionados no S3
-@router.get("/list_versions/")
-def list_versions(project: str = "default_project"):
-    try:
-        s3_client = boto3.client("s3", region_name="us-east-2")
-        response = s3_client.list_objects_v2(
-            Bucket="ai-dev-assistant-code-history",
-            Prefix=f"{project}/"
-        )
+# --- ENDPOINTS ---
+@router.get("/")
+def root():
+    return {"message": "API está rodando corretamente com prefixo /api!"}
 
-        files = []
-        for obj in response.get("Contents", []):
-            files.append({
-                "filename": obj["Key"],
-                "last_modified": obj["LastModified"].isoformat(),
-                "size": obj["Size"]
-            })
-
-        return {"project": project, "versions": files}
-    
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao listar versões: {str(e)}")
-
-# Estruturas das requisições
 class CodeRequest(BaseModel):
     command: str = ""
     filename: str = "main.py"
     project: str = "default_project"
 
-class GitHubConfig(BaseModel):
-    project: str = "default_project"
-    github_url: str
-
-class DynamoDBRequest(BaseModel):
-    table_name: str
-    item: dict
-
-# Teste simples da API
-@router.get("/")
-def root():
-    return {"message": "API está rodando corretamente com prefixo /api!"}
-
-# Geração de código com base no prompt
 @router.post("/generate_code/")
 def generate_code(request: CodeRequest):
     project_path = os.path.join(PROJECTS_DIR, request.project)
@@ -120,21 +82,13 @@ def generate_code(request: CodeRequest):
     raw_code = response["choices"][0]["message"]["content"]
     clean_code = re.sub(r"```[a-zA-Z]*\n|```", "", raw_code).strip()
 
-    with open(file_path, "w", encoding="utf-8") as file:
-        file.write(clean_code)
+    with open(file_path, "w", encoding="utf-8") as f:
+        f.write(clean_code)
 
-    # Versionamento no S3
     upload_code_to_s3(clean_code, request.project, request.filename)
 
-    # Executa o código para capturar saída
-    result = subprocess.run(
-        ["python3", file_path],
-        capture_output=True,
-        text=True,
-        timeout=10
-    )
+    result = subprocess.run(["python3", file_path], capture_output=True, text=True, timeout=10)
 
-    # Salva no DynamoDB
     save_to_dynamodb(
         project=request.project,
         filename=request.filename,
@@ -151,41 +105,29 @@ def generate_code(request: CodeRequest):
         "errors": result.stderr
     }
 
-# Executa o código salvo
 @router.post("/run_code/")
 def run_code(request: CodeRequest):
-    project_path = os.path.join(PROJECTS_DIR, request.project)
-    file_path = os.path.join(project_path, request.filename)
-
+    file_path = os.path.join(PROJECTS_DIR, request.project, request.filename)
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="Arquivo não encontrado.")
-
     result = subprocess.run(["python3", file_path], capture_output=True, text=True, timeout=10)
     return {"output": result.stdout, "errors": result.stderr}
 
-# Retorna o código salvo em texto puro
 @router.get("/get_code/", response_class=PlainTextResponse)
 def get_generated_code(project: str = "default_project", filename: str = "main.py"):
     file_path = os.path.join(PROJECTS_DIR, project, filename)
-
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="Arquivo não encontrado.")
+    with open(file_path, "r", encoding="utf-8") as f:
+        return f.read()
 
-    with open(file_path, "r", encoding="utf-8") as file:
-        return file.read()
-
-# Corrige o código automaticamente se houver erro
 @router.post("/auto_fix_code/")
 def auto_fix_code(request: CodeRequest):
-    project_path = os.path.join(PROJECTS_DIR, request.project)
-    file_path = os.path.join(project_path, request.filename)
-
+    file_path = os.path.join(PROJECTS_DIR, request.project, request.filename)
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="Arquivo não encontrado.")
-
     for _ in range(3):
         result = subprocess.run(["python3", file_path], capture_output=True, text=True, timeout=10)
-
         if result.returncode == 0:
             return {"output": result.stdout, "message": "Código executado com sucesso sem erros."}
 
@@ -193,15 +135,15 @@ def auto_fix_code(request: CodeRequest):
             current_code = f.read()
 
         prompt = textwrap.dedent(f"""
-            O código abaixo está com erro. Corrija o erro retornado no traceback:
+        O código abaixo está com erro. Corrija o erro retornado no traceback:
 
-            Código atual:
-            {current_code}
+        Código atual:
+        {current_code}
 
-            Erro encontrado:
-            {result.stderr}
+        Erro encontrado:
+        {result.stderr}
 
-            Retorne apenas o código corrigido, sem explicações.
+        Retorne apenas o código corrigido, sem explicações.
         """).strip()
 
         response = openai.ChatCompletion.create(
@@ -213,20 +155,58 @@ def auto_fix_code(request: CodeRequest):
         )
 
         fixed_code = re.sub(r"```[a-zA-Z]*\n|```", "", response["choices"][0]["message"]["content"]).strip()
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(fixed_code)
 
-        with open(file_path, "w", encoding="utf-8") as file:
-            file.write(fixed_code)
+    return {"output": result.stdout, "errors": result.stderr, "message": "Tentativas de correção esgotadas."}
 
-    return {
-        "output": result.stdout,
-        "errors": result.stderr,
-        "message": "Tentativas de correção esgotadas."
-    }
+# --- NOVO: Listagem de versões no S3
+@router.get("/list_versions/")
+def list_versions(project: str = "default_project"):
+    try:
+        s3 = boto3.client("s3", region_name="us-east-2")
+        response = s3.list_objects_v2(
+            Bucket="ai-dev-assistant-code-history",
+            Prefix=f"{project}/"
+        )
+        return {
+            "project": project,
+            "versions": [
+                {
+                    "filename": obj["Key"],
+                    "last_modified": obj["LastModified"].isoformat(),
+                    "size": obj["Size"]
+                } for obj in response.get("Contents", [])
+            ]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao listar versões: {e}")
 
-# Monta os arquivos do frontend
+# --- NOVO: Rollback manual
+@router.post("/rollback_version/")
+def rollback_version(project: str, version_key: str):
+    try:
+        s3 = boto3.client("s3", region_name="us-east-2")
+        response = s3.get_object(
+            Bucket="ai-dev-assistant-code-history",
+            Key=version_key
+        )
+        code = response["Body"].read().decode("utf-8")
+
+        filename = version_key.split("/")[-1].split("_", 1)[-1]
+        path = os.path.join(PROJECTS_DIR, project)
+        os.makedirs(path, exist_ok=True)
+        local_file = os.path.join(path, filename)
+
+        with open(local_file, "w", encoding="utf-8") as f:
+            f.write(code)
+
+        return {"message": "Rollback realizado com sucesso.", "file": local_file}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro no rollback: {e}")
+
+# --- Frontend Mount
 app.mount("/frontend", StaticFiles(directory="frontend", html=True), name="frontend")
-
-# Aplica as rotas da API
 app.include_router(router)
 
 print("Pipeline funcionando!")
