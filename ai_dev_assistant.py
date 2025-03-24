@@ -7,7 +7,7 @@ import re
 import textwrap
 from datetime import datetime
 
-from fastapi import FastAPI, HTTPException, APIRouter
+from fastapi import FastAPI, HTTPException, APIRouter, Query
 from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -100,6 +100,73 @@ def apply_rollback_version(project: str, version_key: str):
         return {"message": "Rollback aplicado com sucesso para main.py.", "file": file_path}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao aplicar rollback: {str(e)}")
+
+@router.get("/get_last_code/")
+def get_last_code(project: str = "default_project"):
+    try:
+        table = dynamodb_resource.Table("ai-code-history")
+        response = table.query(
+            KeyConditionExpression=boto3.dynamodb.conditions.Key("project_id").eq(project),
+            ScanIndexForward=False,
+            Limit=1
+        )
+        items = response.get("Items", [])
+        if items:
+            return items[0]
+        return {"message": "Nenhum código encontrado."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao buscar último código: {str(e)}")
+
+@router.get("/list_history_by_command/")
+def list_history_by_command(project: str = "default_project", keyword: str = Query(...)):
+    try:
+        table = dynamodb_resource.Table("ai-code-history")
+        response = table.query(
+            KeyConditionExpression=boto3.dynamodb.conditions.Key("project_id").eq(project)
+        )
+        filtered = [item for item in response.get("Items", []) if keyword.lower() in item.get("command", "").lower()]
+        return {"project": project, "filtered_by_command": filtered}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao filtrar por comando: {str(e)}")
+
+@router.get("/list_history_by_date/")
+def list_history_by_date(project: str, start: str, end: str):
+    try:
+        table = dynamodb_resource.Table("ai-code-history")
+        response = table.query(
+            KeyConditionExpression=boto3.dynamodb.conditions.Key("project_id").eq(project) &
+                                   boto3.dynamodb.conditions.Key("timestamp").between(start, end)
+        )
+        return {"project": project, "filtered_by_date": response.get("Items", [])}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao filtrar por data: {str(e)}")
+
+class SearchRequest(BaseModel):
+    project: str
+    keyword: str = ""
+    start: str = ""
+    end: str = ""
+
+@router.post("/search_history/")
+def search_history(request: SearchRequest):
+    try:
+        table = dynamodb_resource.Table("ai-code-history")
+        query_params = {
+            "KeyConditionExpression": boto3.dynamodb.conditions.Key("project_id").eq(request.project)
+        }
+
+        if request.start and request.end:
+            query_params["KeyConditionExpression"] &= boto3.dynamodb.conditions.Key("timestamp").between(request.start, request.end)
+
+        response = table.query(**query_params)
+        items = response.get("Items", [])
+
+        if request.keyword:
+            items = [item for item in items if request.keyword.lower() in item.get("command", "").lower()]
+
+        return {"project": request.project, "search_result": items}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao buscar histórico: {str(e)}")
 
 class CodeRequest(BaseModel):
     command: str = ""
