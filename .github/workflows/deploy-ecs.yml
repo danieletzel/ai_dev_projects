@@ -9,6 +9,12 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
 
+    env:
+      CLUSTER: ai-dev-cluster2
+      SERVICE_BACKEND: ai-dev-backend-service
+      SERVICE_FRONTEND: ai-dev-frontend-service
+      SERVICE_RUNNER: ai-dev-code-runner-service-v2
+
     steps:
       - name: Checkout do código
         uses: actions/checkout@v4
@@ -23,6 +29,7 @@ jobs:
       - name: Login na AWS ECR
         uses: aws-actions/amazon-ecr-login@v1
 
+      # --- Build e Push das Imagens ---
       - name: Build e Push - Backend
         run: |
           docker build --platform linux/amd64 -t ${{ secrets.ECR_BACKEND_URI }} -f Dockerfile.fastapi .
@@ -38,23 +45,155 @@ jobs:
           docker build --platform linux/amd64 -t ${{ secrets.ECR_CODE_RUNNER_URI }} -f Dockerfile.main .
           docker push ${{ secrets.ECR_CODE_RUNNER_URI }}
 
-      - name: Atualizar Task Definition - Backend
+      # --- Deploy com Rollback: BACKEND ---
+      - name: Capturar Task Definition Atual - Backend
+        id: current-backend
+        run: |
+          TASK_DEF=$(aws ecs describe-services \
+            --cluster $CLUSTER \
+            --services $SERVICE_BACKEND \
+            --query "services[0].taskDefinition" \
+            --output text)
+          echo "task_definition=$TASK_DEF" >> $GITHUB_OUTPUT
+
+      - name: Atualizar Serviço - Backend
         run: |
           aws ecs update-service \
-            --cluster ai-dev-cluster2 \
-            --service ai-dev-backend-service \
+            --cluster $CLUSTER \
+            --service $SERVICE_BACKEND \
             --force-new-deployment
 
-      - name: Atualizar Task Definition - Frontend
+      - name: Aguardar 90 segundos - Backend
+        run: sleep 90
+
+      - name: Verificar Saúde - Backend
+        id: check-backend
+        run: |
+          DESIRED=$(aws ecs describe-services \
+            --cluster $CLUSTER \
+            --services $SERVICE_BACKEND \
+            --query "services[0].desiredCount" --output text)
+
+          RUNNING=$(aws ecs describe-services \
+            --cluster $CLUSTER \
+            --services $SERVICE_BACKEND \
+            --query "services[0].runningCount" --output text)
+
+          echo "Desired: $DESIRED | Running: $RUNNING"
+
+          if [ "$RUNNING" -lt "$DESIRED" ]; then
+            echo "rollback=true" >> $GITHUB_OUTPUT
+          else
+            echo "rollback=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Executar Rollback - Backend
+        if: steps.check-backend.outputs.rollback == 'true'
+        run: |
+          echo "Rollback BACKEND em execução..."
+          aws ecs update-service \
+            --cluster $CLUSTER \
+            --service $SERVICE_BACKEND \
+            --task-definition ${{ steps.current-backend.outputs.task_definition }}
+
+      # --- Deploy com Rollback: CODE RUNNER ---
+      - name: Capturar Task Definition Atual - Code Runner
+        id: current-runner
+        run: |
+          TASK_DEF=$(aws ecs describe-services \
+            --cluster $CLUSTER \
+            --services $SERVICE_RUNNER \
+            --query "services[0].taskDefinition" \
+            --output text)
+          echo "task_definition=$TASK_DEF" >> $GITHUB_OUTPUT
+
+      - name: Atualizar Serviço - Code Runner
         run: |
           aws ecs update-service \
-            --cluster ai-dev-cluster2 \
-            --service ai-dev-frontend-service \
+            --cluster $CLUSTER \
+            --service $SERVICE_RUNNER \
             --force-new-deployment
 
-      - name: Atualizar Task Definition - Code Runner
+      - name: Aguardar 90 segundos - Code Runner
+        run: sleep 90
+
+      - name: Verificar Saúde - Code Runner
+        id: check-runner
+        run: |
+          DESIRED=$(aws ecs describe-services \
+            --cluster $CLUSTER \
+            --services $SERVICE_RUNNER \
+            --query "services[0].desiredCount" --output text)
+
+          RUNNING=$(aws ecs describe-services \
+            --cluster $CLUSTER \
+            --services $SERVICE_RUNNER \
+            --query "services[0].runningCount" --output text)
+
+          echo "Desired: $DESIRED | Running: $RUNNING"
+
+          if [ "$RUNNING" -lt "$DESIRED" ]; then
+            echo "rollback=true" >> $GITHUB_OUTPUT
+          else
+            echo "rollback=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Executar Rollback - Code Runner
+        if: steps.check-runner.outputs.rollback == 'true'
+        run: |
+          echo "Rollback CODE RUNNER em execução..."
+          aws ecs update-service \
+            --cluster $CLUSTER \
+            --service $SERVICE_RUNNER \
+            --task-definition ${{ steps.current-runner.outputs.task_definition }}
+
+      # --- Deploy com Rollback: FRONTEND ---
+      - name: Capturar Task Definition Atual - Frontend
+        id: current-frontend
+        run: |
+          TASK_DEF=$(aws ecs describe-services \
+            --cluster $CLUSTER \
+            --services $SERVICE_FRONTEND \
+            --query "services[0].taskDefinition" \
+            --output text)
+          echo "task_definition=$TASK_DEF" >> $GITHUB_OUTPUT
+
+      - name: Atualizar Serviço - Frontend
         run: |
           aws ecs update-service \
-            --cluster ai-dev-cluster2 \
-            --service ai-dev-code-runner-service-v2 \
+            --cluster $CLUSTER \
+            --service $SERVICE_FRONTEND \
             --force-new-deployment
+
+      - name: Aguardar 90 segundos - Frontend
+        run: sleep 90
+
+      - name: Verificar Saúde - Frontend
+        id: check-frontend
+        run: |
+          DESIRED=$(aws ecs describe-services \
+            --cluster $CLUSTER \
+            --services $SERVICE_FRONTEND \
+            --query "services[0].desiredCount" --output text)
+
+          RUNNING=$(aws ecs describe-services \
+            --cluster $CLUSTER \
+            --services $SERVICE_FRONTEND \
+            --query "services[0].runningCount" --output text)
+
+          echo "Desired: $DESIRED | Running: $RUNNING"
+
+          if [ "$RUNNING" -lt "$DESIRED" ]; then
+            echo "rollback=true" >> $GITHUB_OUTPUT
+          else
+            echo "rollback=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Executar Rollback - Frontend
+        if: steps.check-frontend.outputs.rollback == 'true'
+        run: |
+          echo "Rollback FRONTEND em execução..."
+          aws ecs update-service \
+            --cluster $CLUSTER \
+            --service $SERVICE_FRONTEND \
+            --task-definition ${{ steps.current-frontend.outputs.task_definition }}
