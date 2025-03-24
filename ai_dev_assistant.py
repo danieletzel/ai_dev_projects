@@ -18,7 +18,6 @@ router = APIRouter(prefix="/api")
 PROJECTS_DIR = "/app/workspaces"
 os.makedirs(PROJECTS_DIR, exist_ok=True)
 
-dynamodb_client = boto3.client("dynamodb", region_name="us-east-2")
 dynamodb_resource = boto3.resource("dynamodb", region_name="us-east-2")
 s3_client = boto3.client("s3", region_name="us-east-2")
 
@@ -74,6 +73,17 @@ def list_versions(project: str = "default_project"):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao listar versões: {str(e)}")
 
+@router.get("/list_history/")
+def list_history(project: str = "default_project"):
+    try:
+        table = dynamodb_resource.Table("ai-code-history")
+        response = table.query(
+            KeyConditionExpression=boto3.dynamodb.conditions.Key('project_id').eq(project)
+        )
+        return {"project": project, "history": response.get("Items", [])}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao listar histórico: {str(e)}")
+
 @router.post("/apply_rollback_version/")
 def apply_rollback_version(project: str, version_key: str):
     try:
@@ -95,14 +105,6 @@ class CodeRequest(BaseModel):
     command: str = ""
     filename: str = "main.py"
     project: str = "default_project"
-
-class GitHubConfig(BaseModel):
-    project: str = "default_project"
-    github_url: str
-
-class DynamoDBRequest(BaseModel):
-    table_name: str
-    item: dict
 
 @router.get("/")
 def root():
@@ -155,8 +157,7 @@ def generate_code(request: CodeRequest):
 
 @router.post("/run_code/")
 def run_code(request: CodeRequest):
-    project_path = os.path.join(PROJECTS_DIR, request.project)
-    file_path = os.path.join(project_path, request.filename)
+    file_path = os.path.join(PROJECTS_DIR, request.project, request.filename)
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="Arquivo não encontrado.")
     result = subprocess.run(["python3", file_path], capture_output=True, text=True, timeout=10)
@@ -172,8 +173,7 @@ def get_generated_code(project: str = "default_project", filename: str = "main.p
 
 @router.post("/auto_fix_code/")
 def auto_fix_code(request: CodeRequest):
-    project_path = os.path.join(PROJECTS_DIR, request.project)
-    file_path = os.path.join(project_path, request.filename)
+    file_path = os.path.join(PROJECTS_DIR, request.project, request.filename)
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="Arquivo não encontrado.")
     for _ in range(3):
