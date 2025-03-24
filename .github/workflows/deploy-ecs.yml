@@ -37,3 +37,24 @@ jobs:
         run: |
           docker build --platform linux/amd64 -t ${{ secrets.ECR_CODE_RUNNER_URI }} -f Dockerfile.main .
           docker push ${{ secrets.ECR_CODE_RUNNER_URI }}
+
+      - name: Atualizar Task Definition - Backend
+        run: |
+          aws ecs update-service \
+            --cluster ai-dev-cluster2 \
+            --service ai-dev-service-backend \
+            --force-new-deployment
+
+      - name: Atualizar Task Definition - Frontend
+        run: |
+          aws ecs update-service \
+            --cluster ai-dev-cluster2 \
+            --service ai-dev-service-frontend \
+            --force-new-deployment
+
+      - name: Atualizar Task Definition - Code Runner
+        run: |
+          aws ecs update-service \
+            --cluster ai-dev-cluster2 \
+            --service ai-dev-code-runner-service-v2 \
+            --force-new-deployment
