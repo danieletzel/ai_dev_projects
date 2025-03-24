@@ -42,14 +42,14 @@ jobs:
         run: |
           aws ecs update-service \
             --cluster ai-dev-cluster2 \
-            --service ai-dev-service-backend \
+            --service ai-dev-backend-service \
             --force-new-deployment
 
       - name: Atualizar Task Definition - Frontend
         run: |
           aws ecs update-service \
             --cluster ai-dev-cluster2 \
-            --service ai-dev-service-frontend \
+            --service ai-dev-frontend-service \
             --force-new-deployment
 
       - name: Atualizar Task Definition - Code Runner
